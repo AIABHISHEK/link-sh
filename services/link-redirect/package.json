@@ -1,5 +1,5 @@
 {
-  "name": "link-sh",
+  "name": "link-redirect",
   "module": "index.ts",
   "type": "module",
   "private": true,
@@ -21,6 +21,7 @@
     "dotenv": "^17.3.1",
     "fastify": "^5.7.4",
     "ioredis": "^5.9.3",
+    "kafkajs": "^2.2.4",
     "nanoid": "^5.1.6",
     "pg": "^8.18.0",
     "pino": "^10.3.1",
