@@ -1,0 +1,17 @@
+{
+  "name": "aggregation",
+  "module": "index.ts",
+  "type": "module",
+  "private": true,
+  "devDependencies": {
+    "@types/bun": "latest"
+  },
+  "peerDependencies": {
+    "typescript": "^5"
+  },
+  "dependencies": {
+    "geoip-lite": "^1.4.10",
+    "kafkajs": "^2.2.4",
+    "ua-parser-js": "^2.0.9"
+  }
+}

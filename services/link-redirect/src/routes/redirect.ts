@@ -1,32 +1,53 @@
 import type { FastifyInstance } from "fastify";
 import { pool } from "../db";
 import { redis } from "../redis";
+import { producer } from "../kafka/producer";
 
 export default async function (app: FastifyInstance) {
     app.get("/:shortCode", async (req, reply) => {
         const { shortCode } = req.params as { shortCode: string };
-
         const cacheKey = `link:${shortCode}`;
 
+        let longUrl: string | null = null;
+
         const cached = await redis.get(cacheKey);
-
         if (cached) {
-            return reply.redirect(cached);
+            longUrl = cached;
+        } else {
+            // Fallback to DB
+            const result = await pool.query(
+                "SELECT long_url FROM links WHERE short_code = $1",
+                [shortCode]
+            );
+
+            if (result.rowCount === 0) {
+                return reply.status(404).send({ error: "Not found" });
+            }
+
+            longUrl = result.rows[0].long_url;
+
+            // Cache it
+            await redis.set(cacheKey, longUrl!, "EX", 60 * 60);
         }
 
-        const result = await pool.query(
-            "SELECT long_url FROM links WHERE short_code = $1",
-            [shortCode]
-        );
+        // Produce Kafka event (non-blocking)
+        producer.send({
+            topic: "link.clicks",
+            messages: [
+                {
+                    key: shortCode, // partition key
+                    value: JSON.stringify({
+                        shortCode,
+                        timestamp: Date.now(),
+                        ip: req.ip,
+                        userAgent: req.headers["user-agent"],
+                    }),
+                },
+            ],
+        }).catch((err) => {
+            app.log.error("Kafka publish failed", err);
+        });
 
-        if (result.rowCount === 0) {
-            return reply.status(404).send({ error: "Not found" });
-        }
-
-        const longUrl = result.rows[0].long_url;
-
-        await redis.set(cacheKey, longUrl, "EX", 60 * 60); //ttl 1 hour
-
-        return reply.redirect(longUrl, 301);
+        return reply.redirect(longUrl!);
     });
 }

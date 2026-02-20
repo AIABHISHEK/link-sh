@@ -72,3 +72,30 @@ link-shortener/
 ├── .env
 ├── package.json (workspace root)
 └── README.md
+
+
+
+#### Create Topic
+
+Start dev compose 
+
+Once running:
+```
+docker exec -it link_kafka bash
+```
+
+Then:
+```
+kafka-topics.sh --create \
+  --topic link.clicks \
+  --bootstrap-server localhost:9092 \
+  --partitions 3 \
+  --replication-factor 1
+```
+
+Verify:
+```
+kafka-topics.sh --list --bootstrap-server localhost:9092
+```
+
+

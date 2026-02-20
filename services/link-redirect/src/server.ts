@@ -4,6 +4,7 @@ import { logger } from "./logger";
 import createRoute from "./routes/create";
 import redirectRoute from "./routes/redirect";
 import healthRoute from "./health";
+import { connectProducer } from "./kafka/producer";
 
 dotenv.config();
 
@@ -21,6 +22,7 @@ app.register(createRoute);
 app.register(redirectRoute);
 app.register(healthRoute);
 
+await connectProducer();
 app.listen({ port: Number(process.env.PORT), host: "0.0.0.0" })
     .then(() => {
         logger.info("Server started");
