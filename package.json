@@ -14,5 +14,9 @@
   "type": "module",
   "workspaces": [
     "services/*"
-  ]
+  ],
+  "dependencies": {
+    "envalid": "^8.1.1",
+    "pino": "^10.3.1"
+  }
 }

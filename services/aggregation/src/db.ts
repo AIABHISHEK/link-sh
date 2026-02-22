@@ -1,6 +1,7 @@
 import { Pool } from "pg";
+import { config } from "./config";
 
 export const pool = new Pool({
-    connectionString: process.env.DATABASE_URL,
+    connectionString: config.DATABASE_URL,
     // TODO explore other options like ssl
 });

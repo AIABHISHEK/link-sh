@@ -1,8 +1,9 @@
 import { Kafka } from "kafkajs";
+import { config } from "../config";
 
 const kafka = new Kafka({
     clientId: "link-redirect-service",
-    brokers: [process.env.KAFKA_BROKER || "localhost:9092"],
+    brokers: [config.KAFKA_BROKERS || "localhost:9092"],
     connectionTimeout: 3000,
     requestTimeout: 30000,
     retry: {

@@ -2,14 +2,14 @@ import type { FastifyInstance } from "fastify";
 import { pool } from "../db";
 import { redis } from "../redis";
 import { producer } from "../kafka/producer";
+import { logger } from "../logger";
 
 export default async function (app: FastifyInstance) {
     app.get("/:shortCode", async (req, reply) => {
         const { shortCode } = req.params as { shortCode: string };
         const cacheKey = `link:${shortCode}`;
-
+        logger.info({ shortCode }, "redirect requested");
         let longUrl: string | null = null;
-
         const cached = await redis.get(cacheKey);
         if (cached) {
             longUrl = cached;
@@ -45,9 +45,8 @@ export default async function (app: FastifyInstance) {
                 },
             ],
         }).catch((err) => {
-            app.log.error("Kafka publish failed", err);
+            logger.error({ err, shortCode }, "Failed to produce Kafka event");
         });
-
         return reply.redirect(longUrl!);
     });
 }

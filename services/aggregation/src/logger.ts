@@ -4,7 +4,7 @@ import { config } from "./config";
 export const logger = pino({
     level: config.LOG_LEVEL,
     base: {
-        service: "redirect-service",
+        service: "aggregation",
     },
     timestamp: pino.stdTimeFunctions.isoTime,
-});
+})
