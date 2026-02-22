@@ -10,8 +10,11 @@
     "typescript": "^5"
   },
   "dependencies": {
+    "@types/geoip-lite": "^1.4.4",
+    "@types/pg": "^8.16.0",
     "geoip-lite": "^1.4.10",
     "kafkajs": "^2.2.4",
+    "pg": "^8.18.0",
     "ua-parser-js": "^2.0.9"
   }
 }
