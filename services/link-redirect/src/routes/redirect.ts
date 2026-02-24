@@ -4,8 +4,13 @@ import { redis } from "../redis";
 import { producer } from "../kafka/producer";
 import { logger } from "../logger";
 
+import { trace } from "@opentelemetry/api";
+const tracer = trace.getTracer("redirect-service");
+
+
 export default async function (app: FastifyInstance) {
     app.get("/:shortCode", async (req, reply) => {
+        const span = tracer.startSpan("redirect-handler");
         const { shortCode } = req.params as { shortCode: string };
         const cacheKey = `link:${shortCode}`;
         logger.info({ shortCode }, "redirect requested");
@@ -47,6 +52,18 @@ export default async function (app: FastifyInstance) {
         }).catch((err) => {
             logger.error({ err, shortCode }, "Failed to produce Kafka event");
         });
+        span.end();
         return reply.redirect(longUrl!);
+    });
+
+    app.get("/otel-test", async (_, reply) => {
+        const tracer = trace.getTracer("debug");
+
+        await tracer.startActiveSpan("test-span", async (span) => {
+            await new Promise(r => setTimeout(r, 100));
+            span.end();
+        });
+
+        return "ok";
     });
 }

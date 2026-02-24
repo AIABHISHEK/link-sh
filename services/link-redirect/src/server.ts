@@ -1,3 +1,6 @@
+import { sdk } from "./otel";
+await sdk.start();
+console.log("OpenTelemetry SDK started");
 import Fastify from "fastify";
 import dotenv from "dotenv";
 import { logger } from "./logger";
@@ -9,6 +12,7 @@ import { config } from "./config";
 import { producer } from "./kafka/producer";
 import { pool } from "./db";
 import { redis } from "./redis";
+
 
 dotenv.config();
 

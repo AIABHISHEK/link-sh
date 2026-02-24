@@ -1,9 +1,10 @@
 import { Kafka } from "kafkajs";
 import { logger } from "../logger";
+import { config } from "../config";
 
 const kafka = new Kafka({
     clientId: "link-redirect-service",
-    brokers: [process.env.KAFKA_BROKER || "localhost:9092"],
+    brokers: [config.KAFKA_BROKERS || "localhost:9092"],
 });
 
 export const producer = kafka.producer();

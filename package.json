@@ -5,8 +5,8 @@
   },
   "private": true,
   "scripts": {
-    "dev:redirect": "bun --cwd services/redirect-service run dev",
-    "dev:aggregator": "bun --cwd services/aggregator-service run dev",
+    "dev:redirect": "bun run services/link-redirect/src/server.ts ",
+    "dev:aggregator": "bun run services/aggregation/src/index.ts",
     "migrate:create": "node-pg-migrate create",
     "migrate:up": "node-pg-migrate up",
     "migrate:down": "node-pg-migrate down"
@@ -14,9 +14,5 @@
   "type": "module",
   "workspaces": [
     "services/*"
-  ],
-  "dependencies": {
-    "envalid": "^8.1.1",
-    "pino": "^10.3.1"
-  }
+  ]
 }

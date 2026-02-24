@@ -6,5 +6,5 @@ export const config = cleanEnv(process.env, {
     DATABASE_URL: str(),
     REDIS_URL: str(),
     LOG_LEVEL: str({ choices: ["error", "warn", "info", "debug"], default: "info" }),
-    KAFKA_BROKER: str(),
+    KAFKA_BROKERS: str(),
 })

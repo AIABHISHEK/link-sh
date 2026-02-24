@@ -1,4 +1,4 @@
-version: '3.8'
+version: '1.0'
 
 services:
   postgres:
@@ -41,5 +41,49 @@ services:
       KAFKA_TRANSACTION_STATE_LOG_MIN_ISR: 1
       KAFKA_CLUSTER_ID: 9HhWxSvGgNSM5c5FOI2XbC
 
+  otel-collector:
+    image: otel/opentelemetry-collector-contrib:latest
+    container_name: link_otel_collector
+    command: ["--config=/etc/otel-collector-config.yml"]
+    volumes:
+      - ./otel-collector-config.yml:/etc/otel-collector-config.yml
+    ports:
+      - "4318:4318"   # OTLP HTTP
+      - "4317:4317"   # OTLP gRPC
+
+  prometheus:
+    image: prom/prometheus:latest
+    container_name: link_prometheus
+    ports:
+      - "9090:9090"
+    volumes:
+      - ./prometheus.yml:/etc/prometheus/prometheus.yml
+
+  loki:
+    image: grafana/loki:latest
+    container_name: link_loki
+    ports:
+      - "3100:3100"
+    command: -config.file=/etc/loki/local-config.yaml
+
+  tempo:
+    image: grafana/tempo:2.10.1
+    container_name: link_tempo
+    command: ["-config.file=/etc/tempo.yaml", "-target=all"]
+    volumes:
+      - ./tempo.yaml:/etc/tempo.yaml
+      - tempo-data:/var/tempo
+    ports:
+      - "3200:3200"
+
+  grafana:
+    image: grafana/grafana:latest
+    container_name: link_grafana
+    ports:
+      - "3001:3000"
+    environment:
+      - GF_SECURITY_ADMIN_PASSWORD=admin
+
 volumes:
   pg_data:
+  tempo-data:
