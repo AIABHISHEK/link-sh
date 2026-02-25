@@ -1,9 +1,9 @@
 import { sdk } from "./otel";
 await sdk.start();
+import { logger } from "./logger";
 console.log("OpenTelemetry SDK started");
 import Fastify from "fastify";
 import dotenv from "dotenv";
-import { logger } from "./logger";
 import createRoute from "./routes/create";
 import redirectRoute from "./routes/redirect";
 import healthRoute from "./health";
@@ -23,6 +23,7 @@ app.register(redirectRoute);
 app.register(healthRoute);
 
 // TODO: fix the the connection with proper error handling following good practices
+
 await connectProducer();
 const server = await app.listen({ port: Number(process.env.PORT), host: "0.0.0.0" })
     .then(() => {
