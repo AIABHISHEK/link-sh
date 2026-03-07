@@ -1,9 +1,11 @@
+import dotenv from "dotenv";
 import { sdk } from "./otel";
+
+dotenv.config();
 await sdk.start();
-import { logger } from "./logger";
 console.log("OpenTelemetry SDK started");
 import Fastify from "fastify";
-import dotenv from "dotenv";
+import { logger } from "./logger";
 import createRoute from "./routes/create";
 import redirectRoute from "./routes/redirect";
 import healthRoute from "./health";

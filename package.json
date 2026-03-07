@@ -1,6 +1,7 @@
 {
   "name": "link-sh",
   "devDependencies": {
+    "dotenv-expand": "^12.0.3",
     "node-pg-migrate": "^8.0.4"
   },
   "private": true,
@@ -8,8 +9,8 @@
     "dev:redirect": "bun run services/link-redirect/src/server.ts ",
     "dev:aggregator": "bun run services/aggregation/src/index.ts",
     "migrate:create": "node-pg-migrate create",
-    "migrate:up": "node-pg-migrate up",
-    "migrate:down": "node-pg-migrate down"
+    "migrate:up": "bun run services/link-redirect/scripts/migrate.ts up",
+    "migrate:down": "bun run services/link-redirect/scripts/migrate.ts down"
   },
   "type": "module",
   "workspaces": [

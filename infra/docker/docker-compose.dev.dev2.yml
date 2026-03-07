@@ -1,0 +1,49 @@
+services:
+  link-redirect:
+    image: oven/bun:1
+    container_name: link_redirect_dev
+    working_dir: /app
+    command:
+      - sh
+      - -lc
+      - |
+        bun install --frozen-lockfile &&
+        until bun run migrate:up; do
+          echo "Waiting for Postgres and retrying migrations...";
+          sleep 2;
+        done &&
+        bun --watch run services/link-redirect/src/server.ts
+    volumes:
+      - ../..:/app
+      - link_node_modules:/app/node_modules
+      - link_bun_cache:/root/.bun/install/cache
+    environment:
+      NODE_ENV: development
+      LOG_LEVEL: info
+      PORT: 3000
+      BASE_URL: http://localhost:3000
+      DATABASE_URL: postgres://postgres:postgres@postgres:5432/links
+      REDIS_URL: redis://redis:6379
+      KAFKA_BROKERS: kafka:29092
+      OTEL_EXPORTER_OTLP_ENDPOINT: http://otel-collector:4318
+      KAFKAJS_NO_PARTITIONER_WARNING: "1"
+    depends_on:
+      postgres:
+        condition: service_started
+      redis:
+        condition: service_started
+      kafka:
+        condition: service_started
+      kafka-init:
+        condition: service_completed_successfully
+      otel-collector:
+        condition: service_started
+    ports:
+      - "3000:3000"
+    init: true
+    stdin_open: true
+    tty: true
+
+volumes:
+  link_node_modules:
+  link_bun_cache:

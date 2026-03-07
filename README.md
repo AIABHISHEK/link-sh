@@ -75,27 +75,25 @@ link-shortener/
 
 
 
-#### Create Topic
+#### Kafka Topic Bootstrap
 
-Start dev compose 
+Topic `link.clicks` is created automatically by the one-shot `kafka-init` service in Compose.
 
-Once running:
+Run:
 ```
-docker exec -it link_kafka bash
-```
-
-Then:
-```
-kafka-topics.sh --create \
-  --topic link.clicks \
-  --bootstrap-server localhost:9092 \
-  --partitions 3 \
-  --replication-factor 1
+docker compose -f infra/docker/docker-compose.dev.yml -f infra/docker/docker-compose.dev.dev2.yml up -d --force-recreate link-redirect
 ```
 
-Verify:
+Verify topic exists:
 ```
-kafka-topics.sh --list --bootstrap-server localhost:9092
+docker compose -f infra/docker/docker-compose.dev.yml -f infra/docker/docker-compose.dev.dev2.yml exec -T kafka bash -lc "/opt/kafka/bin/kafka-topics.sh --bootstrap-server kafka:29092 --list"
 ```
 
 
+## Prometheus 
+{job="otel-collector"}  query to get all available metrics-fields from otel-collector
+
+## To run
+```
+docker compose -f infra/docker/docker-compose.dev.yml -f infra/docker/docker-compose.dev.dev2.yml up -d --force-recreate link-redirect
+```

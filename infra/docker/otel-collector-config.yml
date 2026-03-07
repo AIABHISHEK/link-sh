@@ -5,6 +5,37 @@ receivers:
         endpoint: 0.0.0.0:4318
       grpc:
         endpoint: 0.0.0.0:4317
+  filelog/docker:
+    include:
+      - /var/lib/docker/containers/*/*-json.log
+    exclude:
+      - /var/lib/docker/containers/*/*-json.log.[0-9]*
+    start_at: end
+    include_file_path: true
+    operators:
+      - type: json_parser
+        parse_from: body
+        parse_to: attributes
+        if: 'body matches "^\\s*\\{"'
+        on_error: send
+      - type: move
+        from: attributes.log
+        to: body
+      - type: move
+        from: attributes.stream
+        to: attributes.docker_stream
+      - type: move
+        from: attributes.time
+        to: attributes.docker_time
+      - type: json_parser
+        parse_from: body
+        parse_to: attributes
+        on_error: send
+      - type: regex_parser
+        parse_from: attributes["log.file.path"]
+        regex: '^/var/lib/docker/containers/(?P<docker_container_id>[^/]+)/.*$'
+        parse_to: attributes
+        on_error: send
   hostmetrics:
     collection_interval: 10s
     scrapers:
@@ -16,6 +47,17 @@ receivers:
 
 processors:
   batch:
+  transform/logs:
+    error_mode: ignore
+    log_statements:
+      - context: log
+        statements:
+          - set(resource.attributes["service.name"], attributes["service"]) where attributes["service"] != nil
+  filter/logs_redirect_only:
+    error_mode: ignore
+    logs:
+      log_record:
+        - 'resource.attributes["service.name"] != "redirect-service"'
 
 exporters:
   debug:
@@ -25,7 +67,7 @@ exporters:
     endpoint: "0.0.0.0:9464"
 
   otlphttp/loki:
-    endpoint: "http://link_loki:3100/otlp"
+    endpoint: "http://loki:3100/otlp"
     tls:
       insecure: true
 
@@ -42,8 +84,8 @@ service:
       exporters: [prometheus]
 
     logs:
-      receivers: [otlp]
-      processors: [batch]
+      receivers: [filelog/docker, otlp]
+      processors: [transform/logs, filter/logs_redirect_only, batch]
       exporters: [otlphttp/loki]
 
     traces:

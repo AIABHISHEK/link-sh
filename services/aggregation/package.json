@@ -12,8 +12,9 @@
   "dependencies": {
     "@types/geoip-lite": "^1.4.4",
     "@types/pg": "^8.16.0",
+    "@types/ua-parser-js": "^0.7.39",
     "envalid": "^8.1.1",
-    "geoip-lite": "^1.4.10",
+    "geoip-lite": "^2.0.0",
     "kafkajs": "^2.2.4",
     "pg": "^8.18.0",
     "pino": "^10.3.1",
