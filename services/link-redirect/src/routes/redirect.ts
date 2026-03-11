@@ -1,59 +1,64 @@
 import type { FastifyInstance } from "fastify";
+import { randomUUID } from "node:crypto";
+import { trace } from "@opentelemetry/api";
+import { config } from "../config";
 import { pool } from "../db";
 import { redis } from "../redis";
 import { producer } from "../kafka/producer";
 import { logger } from "../logger";
+import { rateLimit } from "../middleware/rateLimit";
 
-import { trace } from "@opentelemetry/api";
 const tracer = trace.getTracer("redirect-service");
-
+const NEGATIVE_CACHE_SENTINEL = "__NOT_FOUND__";
+const RELEASE_LOCK_SCRIPT = `
+if redis.call("get", KEYS[1]) == ARGV[1] then
+    return redis.call("del", KEYS[1])
+end
+return 0
+`;
 
 export default async function (app: FastifyInstance) {
     app.get("/:shortCode", async (req, reply) => {
-        const span = tracer.startSpan("redirect-handler");
-        const { shortCode } = req.params as { shortCode: string };
-        const cacheKey = `link:${shortCode}`;
-        logger.info({ shortCode }, "redirect requested");
-        let longUrl: string | null = null;
-        const cached = await redis.get(cacheKey);
-        if (cached) {
-            longUrl = cached;
-        } else {
-            // Fallback to DB
-            const result = await pool.query(
-                "SELECT long_url FROM links WHERE short_code = $1",
-                [shortCode]
-            );
+        if (!await rateLimit(req.ip)) {
+            return reply.status(429).send({ error: "Too many requests" });
+        }
 
-            if (result.rowCount === 0) {
+        const { shortCode } = req.params as { shortCode: string };
+        const span = tracer.startSpan("redirect-handler");
+        try {
+            const cacheKey = `link:${shortCode}`;
+            logger.info({ shortCode }, "redirect requested");
+            const longUrl = await resolveLongUrlWithStampedeProtection(shortCode, cacheKey);
+            if (!longUrl) {
+                logger.debug({ shortCode }, "redirect negative cache hit");
                 return reply.status(404).send({ error: "Not found" });
             }
 
-            longUrl = result.rows[0].long_url;
+            // Produce Kafka event (non-blocking)
+            producer.send({
+                topic: "link.clicks",
+                messages: [
+                    {
+                        key: shortCode,
+                        value: JSON.stringify({
+                            shortCode,
+                            timestamp: Date.now(),
+                            ip: req.ip,
+                            userAgent: req.headers["user-agent"],
+                        }),
+                    },
+                ],
+            }).catch((err) => {
+                logger.error({ err, shortCode }, "Failed to produce Kafka event");
+            });
 
-            // Cache it
-            await redis.set(cacheKey, longUrl!, "EX", 60 * 60);
+            return reply.redirect(longUrl);
+        } catch (err) {
+            logger.error({ err, shortCode }, "redirect failed");
+            return reply.status(500).send({ error: "Internal server error" });
+        } finally {
+            span.end();
         }
-
-        // Produce Kafka event (non-blocking)
-        producer.send({
-            topic: "link.clicks",
-            messages: [
-                {
-                    key: shortCode, // partition key
-                    value: JSON.stringify({
-                        shortCode,
-                        timestamp: Date.now(),
-                        ip: req.ip,
-                        userAgent: req.headers["user-agent"],
-                    }),
-                },
-            ],
-        }).catch((err) => {
-            logger.error({ err, shortCode }, "Failed to produce Kafka event");
-        });
-        span.end();
-        return reply.redirect(longUrl!);
     });
 
     app.get("/otel-test", async (_, reply) => {
@@ -66,4 +71,78 @@ export default async function (app: FastifyInstance) {
 
         return "ok";
     });
+}
+
+
+const sleep = (ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms));
+
+async function releaseCacheLock(lockKey: string, lockToken: string) {
+    await redis.eval(RELEASE_LOCK_SCRIPT, 1, lockKey, lockToken);
+}
+
+async function fetchLongUrlFromDb(shortCode: string, cacheKey: string): Promise<string | null> {
+    const result = await pool.query(
+        "SELECT long_url FROM links WHERE short_code = $1",
+        [shortCode]
+    );
+
+    if (result.rowCount === 0) {
+        await redis.set(cacheKey, NEGATIVE_CACHE_SENTINEL, "EX", config.NEGATIVE_CACHE_TTL_SECONDS);
+        return null;
+    }
+
+    const longUrl = result.rows[0].long_url as string;
+    await redis.set(cacheKey, longUrl, "EX", config.CACHE_TTL_SECONDS);
+    return longUrl;
+}
+
+async function resolveLongUrlWithStampedeProtection(shortCode: string, cacheKey: string): Promise<string | null> {
+    const cached = await redis.get(cacheKey);
+    if (cached === NEGATIVE_CACHE_SENTINEL) {
+        return null;
+    }
+    if (cached) {
+        return cached;
+    }
+
+    const lockKey = `${cacheKey}:lock`;
+    const lockToken = randomUUID();
+    const lockAcquired = await redis.set(lockKey, lockToken, "NX", "EX", config.CACHE_LOCK_TTL_SECONDS);
+
+    if (lockAcquired === "OK") {
+        try {
+            return await fetchLongUrlFromDb(shortCode, cacheKey);
+        } finally {
+            await releaseCacheLock(lockKey, lockToken).catch((err) => {
+                logger.warn({ err, shortCode }, "failed to release cache lock");
+            });
+        }
+    }
+
+    for (let attempt = 0; attempt < config.CACHE_WAIT_RETRIES; attempt++) {
+        await sleep(config.CACHE_WAIT_MS);
+
+        const waitedValue = await redis.get(cacheKey);
+        if (waitedValue === NEGATIVE_CACHE_SENTINEL) {
+            return null;
+        }
+        if (waitedValue) {
+            return waitedValue;
+        }
+    }
+
+    const retryLockToken = randomUUID();
+    const retryLockAcquired = await redis.set(lockKey, retryLockToken, "NX", "EX", config.CACHE_LOCK_TTL_SECONDS);
+    if (retryLockAcquired === "OK") {
+        try {
+            return await fetchLongUrlFromDb(shortCode, cacheKey);
+        } finally {
+            await releaseCacheLock(lockKey, retryLockToken).catch((err) => {
+                logger.warn({ err, shortCode }, "failed to release cache lock");
+            });
+        }
+    }
+
+    logger.warn({ shortCode }, "cache lock wait timed out, falling back to direct DB read");
+    return fetchLongUrlFromDb(shortCode, cacheKey);
 }
