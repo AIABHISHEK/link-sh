@@ -107,7 +107,7 @@ async function resolveLongUrlWithStampedeProtection(shortCode: string, cacheKey:
 
     const lockKey = `${cacheKey}:lock`;
     const lockToken = randomUUID();
-    const lockAcquired = await redis.set(lockKey, lockToken, "NX", "EX", config.CACHE_LOCK_TTL_SECONDS);
+    const lockAcquired = await redis.set(lockKey, lockToken, "EX", config.CACHE_LOCK_TTL_SECONDS, "NX");
 
     if (lockAcquired === "OK") {
         try {
@@ -132,7 +132,13 @@ async function resolveLongUrlWithStampedeProtection(shortCode: string, cacheKey:
     }
 
     const retryLockToken = randomUUID();
-    const retryLockAcquired = await redis.set(lockKey, retryLockToken, "NX", "EX", config.CACHE_LOCK_TTL_SECONDS);
+    const retryLockAcquired = await redis.set(
+        lockKey,
+        retryLockToken,
+        "EX",
+        config.CACHE_LOCK_TTL_SECONDS,
+        "NX"
+    );
     if (retryLockAcquired === "OK") {
         try {
             return await fetchLongUrlFromDb(shortCode, cacheKey);
