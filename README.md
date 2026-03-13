@@ -133,3 +133,23 @@ docker compose -f infra/docker/docker-compose.dev.yml -f infra/docker/docker-com
 - `CACHE_LOCK_TTL_SECONDS` (default: `5`)
 - `CACHE_WAIT_MS` (default: `50`)
 - `CACHE_WAIT_RETRIES` (default: `20`)
+
+## Kafka Producer Reliability Improvements
+Implemented in `services/link-redirect/src/kafka/producer.ts`:
+
+- Idempotent producer (`idempotent: true`) for safer retries.
+- Durable delivery settings (`acks: -1` + producer retries).
+- Internal buffered batching for click events.
+- GZIP compression on batch send.
+- No app-level requeue retry loop; if a buffered batch still fails after producer retries, it is dropped with logs.
+- Graceful shutdown flush via `disconnectProducer()`.
+
+Kafka tuning config in `services/link-redirect/src/config.ts`:
+
+- `KAFKA_BATCH_SIZE` (default: `100`)
+- `KAFKA_BATCH_MAX_WAIT_MS` (default: `25`)
+- `KAFKA_MAX_BUFFERED_MESSAGES` (default: `10000`)
+- `KAFKA_PRODUCER_RETRIES` (default: `8`)
+- `KAFKA_PRODUCER_RETRY_INITIAL_MS` (default: `300`)
+- `KAFKA_PRODUCER_RETRY_MAX_MS` (default: `30000`)
+- `KAFKA_PRODUCER_ACK_TIMEOUT_MS` (default: `30000`)

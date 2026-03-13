@@ -4,7 +4,7 @@ import { trace } from "@opentelemetry/api";
 import { config } from "../config";
 import { pool } from "../db";
 import { redis } from "../redis";
-import { producer } from "../kafka/producer";
+import { enqueueClickEvent } from "../kafka/producer";
 import { logger } from "../logger";
 import { rateLimit } from "../middleware/rateLimit";
 
@@ -34,22 +34,12 @@ export default async function (app: FastifyInstance) {
                 return reply.status(404).send({ error: "Not found" });
             }
 
-            // Produce Kafka event (non-blocking)
-            producer.send({
-                topic: "link.clicks",
-                messages: [
-                    {
-                        key: shortCode,
-                        value: JSON.stringify({
-                            shortCode,
-                            timestamp: Date.now(),
-                            ip: req.ip,
-                            userAgent: req.headers["user-agent"],
-                        }),
-                    },
-                ],
-            }).catch((err) => {
-                logger.error({ err, shortCode }, "Failed to produce Kafka event");
+            // Queue Kafka event for internal batching/compression/retry handling.
+            enqueueClickEvent({
+                shortCode,
+                timestamp: Date.now(),
+                ip: req.ip,
+                userAgent: req.headers["user-agent"],
             });
 
             return reply.redirect(longUrl);

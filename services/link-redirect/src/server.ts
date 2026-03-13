@@ -9,9 +9,8 @@ import { logger } from "./logger";
 import createRoute from "./routes/create";
 import redirectRoute from "./routes/redirect";
 import healthRoute from "./health";
-import { connectProducer } from "./kafka/producer";
+import { connectProducer, disconnectProducer } from "./kafka/producer";
 import { config } from "./config";
-import { producer } from "./kafka/producer";
 import { pool } from "./db";
 import { redis } from "./redis";
 
@@ -45,8 +44,7 @@ function setupGracefulShutdown(server: any) {
             await app.close();
             logger.info("HTTP server closed");
 
-            await producer.disconnect();
-            logger.info("Kafka producer disconnected");
+            await disconnectProducer();
 
             await pool.end();
             logger.info("Postgres connection closed");
