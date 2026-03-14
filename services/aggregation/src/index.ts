@@ -1,3 +1,4 @@
+import { sdk } from "./otel";
 import { consumer } from "./kafka/consumer";
 import { AggregationContext } from "../src/aggregator";
 import { flush } from "./flush";
@@ -7,6 +8,10 @@ import { pool } from "./db";
 
 let isShuttingDown = false;
 let currentContext: AggregationContext | null = null;
+
+await sdk.start();
+logger.info("OpenTelemetry SDK started");
+
 async function start() {
     await consumer.connect()
     await consumer.subscribe({
@@ -69,6 +74,9 @@ async function shutdown() {
 
         await pool.end();
         logger.info("Postgres connection closed");
+
+        await sdk.shutdown();
+        logger.info("OpenTelemetry SDK shut down");
 
         process.exit(0);
     } catch (err) {
