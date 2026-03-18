@@ -53,11 +53,11 @@ processors:
       - context: log
         statements:
           - set(resource.attributes["service.name"], attributes["service"]) where attributes["service"] != nil
-  filter/logs_redirect_only:
+  filter/logs_app_services:
     error_mode: ignore
     logs:
       log_record:
-        - 'resource.attributes["service.name"] != "redirect-service"'
+        - 'resource.attributes["service.name"] != "redirect-service" and resource.attributes["service.name"] != "aggregation-service"'
 
 exporters:
   debug:
@@ -65,6 +65,8 @@ exporters:
 
   prometheus:
     endpoint: "0.0.0.0:9464"
+    resource_to_telemetry_conversion:
+      enabled: true
 
   otlphttp/loki:
     endpoint: "http://loki:3100/otlp"
@@ -85,7 +87,7 @@ service:
 
     logs:
       receivers: [filelog/docker, otlp]
-      processors: [transform/logs, filter/logs_redirect_only, batch]
+      processors: [transform/logs, filter/logs_app_services, batch]
       exporters: [otlphttp/loki]
 
     traces:

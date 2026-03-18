@@ -1,4 +1,5 @@
 import { sdk } from "./otel";
+import { trace } from "@opentelemetry/api";
 import { consumer } from "./kafka/consumer";
 import { AggregationContext } from "../src/aggregator";
 import { flush } from "./flush";
@@ -8,15 +9,21 @@ import { pool } from "./db";
 
 let isShuttingDown = false;
 let currentContext: AggregationContext | null = null;
+const tracer = trace.getTracer("aggregation-service");
 
 await sdk.start();
 logger.info("OpenTelemetry SDK started");
 
 async function start() {
+    logger.info({ topic: config.TOPIC }, "Starting aggregation consumer");
+
     await consumer.connect()
+    logger.info("Kafka consumer connected");
+
     await consumer.subscribe({
         topic: config.TOPIC,
     })
+    logger.info({ topic: config.TOPIC }, "Kafka consumer subscribed");
 
     await consumer.run({
         autoCommit: false,
@@ -28,20 +35,73 @@ async function start() {
             isRunning,
             isStale,
         }) => {
-            logger.info({ batchSize: batch.messages.length }, "Processing batch");
-            logger.info({ batchMessages: batch.messages.map(m => m.value?.toString()) }, "Batch messages");
-            currentContext = new AggregationContext();
-            for (const message of batch.messages) {
-                if (!isRunning() || isStale()) break;
-                if (!message.value) continue;
+            await tracer.startActiveSpan("aggregation.process_batch", async (span) => {
+                span.setAttributes({
+                    "messaging.system": "kafka",
+                    "messaging.destination.name": batch.topic,
+                    "messaging.kafka.partition": batch.partition,
+                    "messaging.batch.message_count": batch.messages.length,
+                    "messaging.kafka.high_watermark": batch.highWatermark,
+                });
 
-                const event = JSON.parse(message.value.toString());
-                currentContext.process(event);
-                resolveOffset(message.offset);
-                await heartbeat();
-            }
-            await flush(currentContext);
-            await commitOffsetsIfNecessary();
+                logger.info({
+                    topic: batch.topic,
+                    partition: batch.partition,
+                    batchSize: batch.messages.length,
+                    highWatermark: batch.highWatermark,
+                }, "Processing Kafka batch");
+
+                currentContext = new AggregationContext();
+                let processedMessages = 0;
+
+                try {
+                    for (const message of batch.messages) {
+                        if (!isRunning() || isStale()) {
+                            logger.warn({
+                                topic: batch.topic,
+                                partition: batch.partition,
+                                processedMessages,
+                            }, "Stopping batch processing because consumer is not running or batch is stale");
+                            break;
+                        }
+
+                        if (!message.value) {
+                            logger.warn({
+                                topic: batch.topic,
+                                partition: batch.partition,
+                                offset: message.offset,
+                            }, "Skipping Kafka message with empty value");
+                            continue;
+                        }
+
+                        const event = JSON.parse(message.value.toString());
+                        currentContext.process(event);
+                        processedMessages += 1;
+                        resolveOffset(message.offset);
+                        await heartbeat();
+                    }
+
+                    span.setAttribute("messaging.batch.processed_count", processedMessages);
+                    await flush(currentContext);
+                    await commitOffsetsIfNecessary();
+                    logger.info({
+                        topic: batch.topic,
+                        partition: batch.partition,
+                        processedMessages,
+                    }, "Kafka batch processed successfully");
+                } catch (err) {
+                    span.recordException(err as Error);
+                    logger.error({
+                        err,
+                        topic: batch.topic,
+                        partition: batch.partition,
+                        processedMessages,
+                    }, "Kafka batch processing failed");
+                    throw err;
+                } finally {
+                    span.end();
+                }
+            });
         }
     })
     logger.info("Kafka consumer started");

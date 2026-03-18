@@ -44,6 +44,39 @@ services:
     stdin_open: true
     tty: true
 
+  aggregation:
+    image: oven/bun:1
+    container_name: link_aggregation_dev
+    working_dir: /app
+    command:
+      - sh
+      - -lc
+      - |
+        bun install --frozen-lockfile &&
+        bun --watch run services/aggregation/src/index.ts
+    volumes:
+      - ../..:/app
+      - link_node_modules:/app/node_modules
+      - link_bun_cache:/root/.bun/install/cache
+    environment:
+      NODE_ENV: development
+      LOG_LEVEL: info
+      DATABASE_URL: postgres://postgres:postgres@postgres:5432/links
+      KAFKA_BROKERS: kafka:29092
+      OTEL_EXPORTER_OTLP_ENDPOINT: http://otel-collector:4318
+    depends_on:
+      postgres:
+        condition: service_started
+      kafka:
+        condition: service_started
+      kafka-init:
+        condition: service_completed_successfully
+      otel-collector:
+        condition: service_started
+    init: true
+    stdin_open: true
+    tty: true
+
 volumes:
   link_node_modules:
   link_bun_cache:

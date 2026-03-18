@@ -75,28 +75,58 @@ link-shortener/
 
 
 
-#### Kafka Topic Bootstrap
+## Docker Quick Guide
 
-Topic `link.clicks` is created automatically by the one-shot `kafka-init` service in Compose.
+### Compose files
+- `infra/docker/docker-compose.dev.yml`: shared infra and observability services.
+- `infra/docker/docker-compose.dev.dev2.yml`: development app containers for `link-redirect` and `aggregation`.
+- `infra/docker/docker-compose.yml`: built-image stack for a more production-like run.
 
-Run:
-```
+### What to run
+
+Start only the redirect service and its required dependencies:
+```bash
 docker compose -f infra/docker/docker-compose.dev.yml -f infra/docker/docker-compose.dev.dev2.yml up -d --force-recreate link-redirect
 ```
 
-Verify topic exists:
+Start both app services in development:
+```bash
+docker compose -f infra/docker/docker-compose.dev.yml -f infra/docker/docker-compose.dev.dev2.yml up -d --force-recreate link-redirect aggregation
 ```
+
+Start the full development stack, including Prometheus, Loki, Tempo, and Grafana:
+```bash
+docker compose -f infra/docker/docker-compose.dev.yml -f infra/docker/docker-compose.dev.dev2.yml up -d --force-recreate
+```
+
+Start the built-image stack:
+```bash
+docker compose -f infra/docker/docker-compose.yml up -d --build
+```
+
+Stop the development stack:
+```bash
+docker compose -f infra/docker/docker-compose.dev.yml -f infra/docker/docker-compose.dev.dev2.yml down
+```
+
+Stop the built-image stack:
+```bash
+docker compose -f infra/docker/docker-compose.yml down
+```
+
+### Notes
+- `link.clicks` is created automatically by the one-shot `kafka-init` container.
+- `link-redirect` does not automatically start `prometheus`, `loki`, `tempo`, or `grafana` unless you include them explicitly or run the full stack command.
+- In development, code is bind-mounted into the Bun containers, so source changes do not require rebuilding an image.
+- Use `--build` when you changed a Dockerfile or files copied into an app image.
+
+Verify the Kafka topic exists:
+```bash
 docker compose -f infra/docker/docker-compose.dev.yml -f infra/docker/docker-compose.dev.dev2.yml exec -T kafka bash -lc "/opt/kafka/bin/kafka-topics.sh --bootstrap-server kafka:29092 --list"
 ```
 
-
-## Prometheus 
-{job="otel-collector"}  query to get all available metrics-fields from otel-collector
-
-## To run
-```
-docker compose -f infra/docker/docker-compose.dev.yml -f infra/docker/docker-compose.dev.dev2.yml up -d --force-recreate link-redirect
-```
+## Prometheus
+`{job="otel-collector"}` query to get all available metric fields from `otel-collector`
 
 
 ## Key Improvements in Redirect Service
