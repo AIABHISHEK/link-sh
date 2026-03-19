@@ -6,6 +6,7 @@ import { pool } from "../db";
 import { redis } from "../redis";
 import { enqueueClickEvent } from "../kafka/producer";
 import { logger } from "../logger";
+import { recordRedirectRequest, type RedirectRequestOutcome } from "../metrics";
 import { rateLimit } from "../middleware/rateLimit";
 
 const tracer = trace.getTracer("redirect-service");
@@ -19,18 +20,22 @@ return 0
 
 export default async function (app: FastifyInstance) {
     app.get("/:shortCode", async (req, reply) => {
-        if (!await rateLimit(req.ip)) {
-            return reply.status(429).send({ error: "Too many requests" });
-        }
-
         const { shortCode } = req.params as { shortCode: string };
         const span = tracer.startSpan("redirect-handler");
+        let outcome: RedirectRequestOutcome | null = null;
+
         try {
+            if (!await rateLimit(req.ip)) {
+                outcome = "rate_limited";
+                return reply.status(429).send({ error: "Too many requests" });
+            }
+
             const cacheKey = `link:${shortCode}`;
             logger.info({ shortCode }, "redirect requested");
             const longUrl = await resolveLongUrlWithStampedeProtection(shortCode, cacheKey);
             if (!longUrl) {
                 logger.debug({ shortCode }, "redirect negative cache hit");
+                outcome = "not_found";
                 return reply.status(404).send({ error: "Not found" });
             }
 
@@ -42,11 +47,17 @@ export default async function (app: FastifyInstance) {
                 userAgent: req.headers["user-agent"],
             });
 
+            outcome = "redirect";
             return reply.redirect(longUrl);
         } catch (err) {
+            outcome = "error";
             logger.error({ err, shortCode }, "redirect failed");
             return reply.status(500).send({ error: "Internal server error" });
         } finally {
+            if (outcome) {
+                span.setAttribute("redirect.outcome", outcome);
+                recordRedirectRequest(outcome);
+            }
             span.end();
         }
     });
