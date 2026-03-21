@@ -183,3 +183,43 @@ Kafka tuning config in `services/link-redirect/src/config.ts`:
 - `KAFKA_PRODUCER_RETRY_INITIAL_MS` (default: `300`)
 - `KAFKA_PRODUCER_RETRY_MAX_MS` (default: `30000`)
 - `KAFKA_PRODUCER_ACK_TIMEOUT_MS` (default: `30000`)
+
+## Metrics
+Implemented in `services/link-redirect/src/metrics.ts`:
+
+- `redirect_requests_total`
+  - Type: counter
+  - Purpose: total redirect requests by final outcome
+  - Labels: `outcome=redirect|not_found|rate_limited|error`
+
+- `create_requests_total`
+  - Type: counter
+  - Purpose: total create-link requests by final outcome
+  - Labels: `outcome=created|invalid_url|error`
+
+- `request_duration_ms`
+  - Type: histogram
+  - Purpose: request latency for both main routes
+  - Labels: `route=redirect|create`, `method=GET|POST`, `outcome=<final outcome>`
+
+### Prometheus Names
+- OTEL counters usually appear in Prometheus with an extra `_total` suffix.
+- That means `redirect_requests_total` may appear as `redirect_requests_total_total`.
+- `create_requests_total` may appear as `create_requests_total_total`.
+- Histograms usually appear as `_bucket`, `_sum`, and `_count` series such as:
+  - `request_duration_ms_bucket`
+  - `request_duration_ms_sum`
+  - `request_duration_ms_count`
+
+### Example PromQL
+```promql
+sum by (outcome) (redirect_requests_total_total)
+```
+
+```promql
+sum by (outcome) (create_requests_total_total)
+```
+
+```promql
+histogram_quantile(0.95, sum(rate(request_duration_ms_bucket[5m])) by (le, route))
+```

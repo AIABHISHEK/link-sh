@@ -6,7 +6,11 @@ import { pool } from "../db";
 import { redis } from "../redis";
 import { enqueueClickEvent } from "../kafka/producer";
 import { logger } from "../logger";
-import { recordRedirectRequest, type RedirectRequestOutcome } from "../metrics";
+import {
+    recordRedirectRequest,
+    recordRequestDuration,
+    type RedirectRequestOutcome,
+} from "../metrics";
 import { rateLimit } from "../middleware/rateLimit";
 
 const tracer = trace.getTracer("redirect-service");
@@ -22,6 +26,7 @@ export default async function (app: FastifyInstance) {
     app.get("/:shortCode", async (req, reply) => {
         const { shortCode } = req.params as { shortCode: string };
         const span = tracer.startSpan("redirect-handler");
+        const startedAt = performance.now();
         let outcome: RedirectRequestOutcome | null = null;
 
         try {
@@ -57,6 +62,7 @@ export default async function (app: FastifyInstance) {
             if (outcome) {
                 span.setAttribute("redirect.outcome", outcome);
                 recordRedirectRequest(outcome);
+                recordRequestDuration("redirect", "GET", outcome, performance.now() - startedAt);
             }
             span.end();
         }
