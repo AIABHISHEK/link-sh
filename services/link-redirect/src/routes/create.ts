@@ -37,9 +37,9 @@ export default async function (app: FastifyInstance) {
 
             outcome = "created";
             logger.info({ shortCode }, "Link created successfully");
-            return {
+            return reply.status(201).send({
                 shortUrl: `${config.BASE_URL}/${shortCode}`,
-            };
+            });
         } catch (err) {
             outcome = "error";
             span.recordException(err as Error);

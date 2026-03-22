@@ -116,6 +116,7 @@ docker compose -f infra/docker/docker-compose.yml down
 
 ### Notes
 - `link.clicks` is created automatically by the one-shot `kafka-init` container.
+- In development, workspace dependencies are installed once by the `workspace-install` container before `link-redirect` or `aggregation` starts.
 - `link-redirect` does not automatically start `prometheus`, `loki`, `tempo`, or `grafana` unless you include them explicitly or run the full stack command.
 - In development, code is bind-mounted into the Bun containers, so source changes do not require rebuilding an image.
 - Use `--build` when you changed a Dockerfile or files copied into an app image.
