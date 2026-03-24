@@ -1,218 +1,452 @@
 # link-sh
 
-To install dependencies:
+`link-sh` is a Bun + TypeScript URL shortener system with a separate click-aggregation pipeline.
+
+It currently includes:
+
+- Short link creation
+- Redirect handling
+- Redis caching and negative caching
+- Redirect rate limiting
+- Kafka-based click event ingestion
+- Background analytics aggregation into Postgres
+- OpenTelemetry metrics, traces, and log shipping
+- Docker-based local development and full-stack runs
+
+## Index
+
+- [Project Summary](#project-summary)
+- [What Is Implemented](#what-is-implemented)
+- [Architecture](#architecture)
+- [Repository Layout](#repository-layout)
+- [How To Run](#how-to-run)
+- [API Endpoints](#api-endpoints)
+- [Configuration](#configuration)
+- [Database Schema](#database-schema)
+- [Observability](#observability)
+- [Operational Notes](#operational-notes)
+- [How To Extend This README](#how-to-extend-this-readme)
+
+## Project Summary
+
+This repository is split into two application services:
+
+1. `link-redirect`
+   Handles link creation, short-code resolution, caching, rate limiting, health checks, and Kafka event publishing.
+2. `aggregation`
+   Consumes click events from Kafka and writes aggregated analytics into Postgres.
+
+Supporting infrastructure is provided through Docker Compose:
+
+- Postgres
+- Redis
+- Kafka
+- OpenTelemetry Collector
+- Prometheus
+- Loki
+- Tempo
+- Grafana
+
+## What Is Implemented
+
+### Core product behavior
+
+- `POST /links` creates a new short link from a valid `longUrl`
+- `GET /:shortCode` resolves and redirects to the original URL
+- `GET /health` checks Postgres and Redis connectivity
+
+### Redirect service behavior
+
+- Short codes are generated with `nanoid` using a 7-character alphabet
+- Link creation retries on unique short-code collisions
+- Newly created links are written into Redis immediately to warm the cache
+- Redirects use Redis as the first lookup layer
+- Missing short codes are stored in Redis with a negative-cache sentinel to reduce repeated DB misses
+- Cache stampede protection is implemented with a per-key Redis lock
+- Redirect requests are rate limited by client IP
+- Click events are pushed to Kafka for asynchronous analytics processing
+- Redirect and create request metrics are recorded with OpenTelemetry
+
+### Analytics pipeline behavior
+
+- Kafka topic: `link.clicks`
+- Click events are consumed in batches
+- Aggregation writes are stored in Postgres for:
+  - total clicks per link
+  - hourly clicks per link
+  - clicks by country
+  - clicks by device type
+- Country is derived with `geoip-lite`
+- Device type is derived from the user agent with `ua-parser-js`
+
+### Observability
+
+- OpenTelemetry traces exported to Tempo through the collector
+- OpenTelemetry metrics exported to Prometheus through the collector
+- Container logs shipped to Loki through the collector
+- Grafana is included in the Docker stack for visualization
+
+### Already present in schema but not wired into behavior
+
+- `links.expires_at` exists in the database schema
+- Expiry enforcement is not currently applied in the redirect flow
+- There is no public analytics read API yet; analytics are written to database tables only
+
+## Architecture
+
+### Create link flow
+
+1. Client sends `POST /links`
+2. Service validates `longUrl`
+3. Service generates a short code and inserts into Postgres
+4. Service warms Redis with `link:{shortCode} -> longUrl`
+5. Service returns the final short URL
+
+### Redirect flow
+
+1. Client requests `GET /:shortCode`
+2. Service applies IP-based rate limiting
+3. Service checks Redis
+4. If cache miss happens, the service uses a Redis lock to avoid stampede on the same key
+5. Service reads Postgres when needed
+6. Service stores either the real URL or a negative-cache sentinel in Redis
+7. Service publishes a click event to Kafka
+8. Service responds with HTTP redirect
+
+### Analytics flow
+
+1. Redirect service publishes click events to Kafka
+2. Aggregation service consumes Kafka batches
+3. Events are grouped in memory by total, hour, country, and device
+4. Aggregated counters are flushed to Postgres in a transaction
+
+## Repository Layout
+
+```text
+.
+|-- services/
+|   |-- link-redirect/        # Fastify redirect + creation service
+|   |-- aggregation/          # Kafka consumer and analytics writer
+|   `-- shared/               # Shared types
+|-- infra/docker/             # Dockerfiles, compose files, OTEL/Prometheus config
+|-- migrations/               # Postgres schema migrations
+|-- package.json              # Workspace scripts
+`-- README.md
+```
+
+## How To Run
+
+### Prerequisites
+
+- Bun
+- Docker and Docker Compose
+
+### Workspace install
 
 ```bash
 bun install
 ```
 
-To run:
+### Option 1: Run the full development stack with Docker
+
+This starts infra plus both application services in watch mode.
 
 ```bash
-bun run index.ts
+docker compose -f infra/docker/docker-compose.dev.yml -f infra/docker/docker-compose.dev.dev2.yml up -d --force-recreate
 ```
 
-To migrate:
+Useful endpoints after startup:
+
+- Redirect service: `http://localhost:3000`
+- Grafana: `http://localhost:3001`
+- Prometheus: `http://localhost:9090`
+- Loki: `http://localhost:3100`
+- Tempo: `http://localhost:3200`
+
+To stop it:
+
+```bash
+docker compose -f infra/docker/docker-compose.dev.yml -f infra/docker/docker-compose.dev.dev2.yml down
+```
+
+### Option 2: Run infra in Docker and apps locally with Bun
+
+Start shared dependencies:
+
+```bash
+docker compose -f infra/docker/docker-compose.dev.yml up -d
+```
+
+Run migrations:
 
 ```bash
 bun run migrate:up
 ```
 
-### folder struture;
-link-shortener/
-│
-├── services/
-│   │
-│   ├── redirect-service/
-│   │   ├── src/
-│   │   │   ├── server.ts
-│   │   │   ├── routes/
-│   │   │   │   ├── create.ts
-│   │   │   │   └── redirect.ts
-│   │   │   ├── kafka/
-│   │   │   │   └── producer.ts
-│   │   │   ├── db.ts
-│   │   │   ├── redis.ts
-│   │   │   ├── config.ts
-│   │   │   └── logger.ts
-│   │   ├── package.json
-│   │   └── tsconfig.json
-│   │
-│   ├── aggregator-service/
-│   │   ├── src/
-│   │   │   ├── index.ts
-│   │   │   ├── kafka/
-│   │   │   │   └── consumer.ts
-│   │   │   ├── aggregator.ts
-│   │   │   ├── db.ts
-│   │   │   ├── config.ts
-│   │   │   └── logger.ts
-│   │   ├── package.json
-│   │   └── tsconfig.json
-│   │
-│   └── shared/
-│       ├── types/
-│       │   └── click-event.ts
-│       ├── constants.ts
-│       └── utils/
-│           └── validate-url.ts
-│
-├── infrastructure/
-│   ├── docker/
-│   │   ├── redirect.Dockerfile
-│   │   ├── aggregator.Dockerfile
-│   │   └── docker-compose.dev.yml
-│   │
-│   ├── kafka/
-│   │   └── create-topics.sh
-│   │
-│   └── migrations/
-│       └── (node-pg-migrate files)
-│
-├── .env
-├── package.json (workspace root)
-└── README.md
+Set environment variables for the redirect service:
 
-
-
-## Docker Quick Guide
-
-### Compose files
-- `infra/docker/docker-compose.dev.yml`: shared infra and observability services.
-- `infra/docker/docker-compose.dev.dev2.yml`: development app containers for `link-redirect` and `aggregation`.
-- `infra/docker/docker-compose.yml`: built-image stack for a more production-like run.
-
-### What to run
-
-Start only the redirect service and its required dependencies:
 ```bash
-docker compose -f infra/docker/docker-compose.dev.yml -f infra/docker/docker-compose.dev.dev2.yml up -d --force-recreate link-redirect
+$env:NODE_ENV="development"
+$env:PORT="3000"
+$env:BASE_URL="http://localhost:3000"
+$env:DATABASE_URL="postgres://postgres:postgres@localhost:5432/links"
+$env:REDIS_URL="redis://localhost:6379"
+$env:KAFKA_BROKERS="localhost:9092"
+$env:OTEL_EXPORTER_OTLP_ENDPOINT="http://localhost:4318"
+$env:LOG_LEVEL="info"
 ```
 
-Start both app services in development:
+Start the redirect service:
+
 ```bash
-docker compose -f infra/docker/docker-compose.dev.yml -f infra/docker/docker-compose.dev.dev2.yml up -d --force-recreate link-redirect aggregation
+bun run dev:redirect
 ```
 
-Start the full development stack, including Prometheus, Loki, Tempo, and Grafana:
+In another terminal, set environment variables for the aggregation service:
+
 ```bash
-docker compose -f infra/docker/docker-compose.dev.yml -f infra/docker/docker-compose.dev.dev2.yml up -d --force-recreate
+$env:NODE_ENV="development"
+$env:DATABASE_URL="postgres://postgres:postgres@localhost:5432/links"
+$env:KAFKA_BROKERS="localhost:9092"
+$env:OTEL_EXPORTER_OTLP_ENDPOINT="http://localhost:4318"
+$env:LOG_LEVEL="info"
+$env:TOPIC="link.clicks"
 ```
 
-Start the built-image stack:
+Start the aggregation service:
+
+```bash
+bun run dev:aggregator
+```
+
+To stop infra:
+
+```bash
+docker compose -f infra/docker/docker-compose.dev.yml down
+```
+
+### Option 3: Run the built-image stack
+
 ```bash
 docker compose -f infra/docker/docker-compose.yml up -d --build
 ```
 
-Stop the development stack:
-```bash
-docker compose -f infra/docker/docker-compose.dev.yml -f infra/docker/docker-compose.dev.dev2.yml down
-```
+To stop it:
 
-Stop the built-image stack:
 ```bash
 docker compose -f infra/docker/docker-compose.yml down
 ```
 
-### Notes
-- `link.clicks` is created automatically by the one-shot `kafka-init` container.
-- In development, workspace dependencies are installed once by the `workspace-install` container before `link-redirect` or `aggregation` starts.
-- `link-redirect` does not automatically start `prometheus`, `loki`, `tempo`, or `grafana` unless you include them explicitly or run the full stack command.
-- In development, code is bind-mounted into the Bun containers, so source changes do not require rebuilding an image.
-- Use `--build` when you changed a Dockerfile or files copied into an app image.
+### Migrations
 
-Verify the Kafka topic exists:
+Create a new migration:
+
 ```bash
-docker compose -f infra/docker/docker-compose.dev.yml -f infra/docker/docker-compose.dev.dev2.yml exec -T kafka bash -lc "/opt/kafka/bin/kafka-topics.sh --bootstrap-server kafka:29092 --list"
+bun run migrate:create <migration_name>
 ```
 
-## Prometheus
-`{job="otel-collector"}` query to get all available metric fields from `otel-collector`
+Apply migrations:
 
+```bash
+bun run migrate:up
+```
 
-## Key Improvements in Redirect Service
+Rollback the latest migration:
 
-### 1) Negative Caching for Missing Short Codes
-- Problem: repeated invalid short-code requests were hitting Postgres every time.
-- Solution: cache a sentinel value (`__NOT_FOUND__`) in Redis for missing links.
-- Result: repeated misses return `404` directly from Redis during negative-cache TTL.
+```bash
+bun run migrate:down
+```
 
-### 2) Hot-Key Stampede Protection
-- Problem: when a hot key expires, many concurrent requests can hit Postgres together.
-- Solution: per-key Redis lock (`link:{shortCode}:lock`) with `SET NX EX`.
-- Follower behavior: non-lock holders wait briefly and retry Redis before falling back.
-- Safety: lock release uses token check + Lua script to avoid deleting another request's lock.
+## API Endpoints
 
-### 3) Redirect Route Hardening
-- Added `try/catch/finally` in redirect flow.
-- Errors are logged with `shortCode` context and return `500` safely.
-- OpenTelemetry span is always ended in `finally`.
+### Create short link
 
-### 4) Cache Priming on Link Creation
-- After `POST /links`, the new mapping is written to Redis immediately.
-- This avoids stale negative-cache windows for newly created short codes.
+`POST /links`
 
-### 5) IP Rate Limiting on Redirect
-- Redirect endpoint enforces IP-based rate limiting via Redis counter + TTL window.
-- Requests over the threshold return `429 Too Many Requests`.
+Request:
 
-## Redirect Cache/Lock Config
- In `services/link-redirect/src/config.ts`:
+```json
+{
+  "longUrl": "https://example.com/some/very/long/path"
+}
+```
 
-- `CACHE_TTL_SECONDS` (default: `3600`)
-- `NEGATIVE_CACHE_TTL_SECONDS` (default: `30`)
-- `CACHE_LOCK_TTL_SECONDS` (default: `5`)
-- `CACHE_WAIT_MS` (default: `50`)
-- `CACHE_WAIT_RETRIES` (default: `20`)
+Success response:
 
-## Kafka Producer Reliability Improvements
-Implemented in `services/link-redirect/src/kafka/producer.ts`:
+```json
+{
+  "shortUrl": "http://localhost:3000/abc123X"
+}
+```
 
-- Idempotent producer (`idempotent: true`) for safer retries.
-- Durable delivery settings (`acks: -1` + producer retries).
-- Internal buffered batching for click events.
-- GZIP compression on batch send.
-- No app-level requeue retry loop; if a buffered batch still fails after producer retries, it is dropped with logs.
-- Graceful shutdown flush via `disconnectProducer()`.
+Possible responses:
 
-Kafka tuning config in `services/link-redirect/src/config.ts`:
+- `201 Created`
+- `400 Bad Request` for invalid URLs
+- `500 Internal Server Error`
 
-- `KAFKA_BATCH_SIZE` (default: `100`)
-- `KAFKA_BATCH_MAX_WAIT_MS` (default: `25`)
-- `KAFKA_MAX_BUFFERED_MESSAGES` (default: `10000`)
-- `KAFKA_PRODUCER_RETRIES` (default: `8`)
-- `KAFKA_PRODUCER_RETRY_INITIAL_MS` (default: `300`)
-- `KAFKA_PRODUCER_RETRY_MAX_MS` (default: `30000`)
-- `KAFKA_PRODUCER_ACK_TIMEOUT_MS` (default: `30000`)
+Example:
 
-## Metrics
-Implemented in `services/link-redirect/src/metrics.ts`:
+```bash
+curl -X POST http://localhost:3000/links -H "Content-Type: application/json" -d "{\"longUrl\":\"https://example.com\"}"
+```
+
+### Redirect
+
+`GET /:shortCode`
+
+Possible responses:
+
+- `302` or framework redirect response to the original URL
+- `404 Not Found` when the short code does not exist
+- `429 Too Many Requests` when the IP rate limit is exceeded
+- `500 Internal Server Error`
+
+Example:
+
+```bash
+curl -i http://localhost:3000/abc123X
+```
+
+### Health check
+
+`GET /health`
+
+Checks:
+
+- Postgres connectivity
+- Redis connectivity
+
+Example:
+
+```bash
+curl http://localhost:3000/health
+```
+
+### OpenTelemetry test route
+
+`GET /otel-test`
+
+This route exists for manual trace validation.
+
+## Configuration
+
+### Redirect service environment variables
+
+Required:
+
+- `DATABASE_URL`
+- `REDIS_URL`
+- `BASE_URL`
+- `KAFKA_BROKERS`
+
+Optional with defaults:
+
+- `NODE_ENV=development`
+- `PORT=3000`
+- `CACHE_TTL_SECONDS=3600`
+- `NEGATIVE_CACHE_TTL_SECONDS=30`
+- `CACHE_LOCK_TTL_SECONDS=5`
+- `CACHE_WAIT_MS=50`
+- `CACHE_WAIT_RETRIES=20`
+- `KAFKA_BATCH_SIZE=100`
+- `KAFKA_BATCH_MAX_WAIT_MS=25`
+- `KAFKA_MAX_BUFFERED_MESSAGES=10000`
+- `KAFKA_PRODUCER_RETRIES=8`
+- `KAFKA_PRODUCER_RETRY_INITIAL_MS=300`
+- `KAFKA_PRODUCER_RETRY_MAX_MS=30000`
+- `KAFKA_PRODUCER_ACK_TIMEOUT_MS=30000`
+- `LOG_LEVEL=info`
+- `OTEL_EXPORTER_OTLP_ENDPOINT=http://localhost:4318`
+
+### Aggregation service environment variables
+
+Required:
+
+- `DATABASE_URL`
+- `KAFKA_BROKERS`
+
+Optional with defaults:
+
+- `NODE_ENV=development`
+- `TOPIC=link.clicks`
+- `LOG_LEVEL=info`
+- `OTEL_EXPORTER_OTLP_ENDPOINT=http://localhost:4318`
+
+## Database Schema
+
+### `links`
+
+Stores the source mapping for each short code.
+
+Columns currently added by migrations:
+
+- `id`
+- `short_code`
+- `long_url`
+- `created_at`
+- `expires_at`
+- `click_count`
+
+### `link_click_hourly`
+
+Aggregated hourly click counts per short code.
+
+Key:
+
+- `(short_code, date, hour)`
+
+### `link_click_country`
+
+Aggregated click counts per country.
+
+Key:
+
+- `(short_code, country)`
+
+### `link_click_device`
+
+Aggregated click counts by device type.
+
+Key:
+
+- `(short_code, device_type)`
+
+## Observability
+
+### Included components
+
+- OpenTelemetry Collector
+- Prometheus
+- Loki
+- Tempo
+- Grafana
+
+### Application metrics
+
+Implemented in the redirect service:
 
 - `redirect_requests_total`
-  - Type: counter
-  - Purpose: total redirect requests by final outcome
-  - Labels: `outcome=redirect|not_found|rate_limited|error`
-
+  Final outcomes: `redirect`, `not_found`, `rate_limited`, `error`
 - `create_requests_total`
-  - Type: counter
-  - Purpose: total create-link requests by final outcome
-  - Labels: `outcome=created|invalid_url|error`
-
+  Final outcomes: `created`, `invalid_url`, `error`
 - `request_duration_ms`
-  - Type: histogram
-  - Purpose: request latency for both main routes
-  - Labels: `route=redirect|create`, `method=GET|POST`, `outcome=<final outcome>`
+  Labels include route, method, and outcome
 
-### Prometheus Names
-- OTEL counters usually appear in Prometheus with an extra `_total` suffix.
-- That means `redirect_requests_total` may appear as `redirect_requests_total_total`.
-- `create_requests_total` may appear as `create_requests_total_total`.
-- Histograms usually appear as `_bucket`, `_sum`, and `_count` series such as:
-  - `request_duration_ms_bucket`
-  - `request_duration_ms_sum`
-  - `request_duration_ms_count`
+### Prometheus naming note
+
+OTEL counters commonly appear in Prometheus with an additional `_total` suffix.
+
+Examples:
+
+- `redirect_requests_total_total`
+- `create_requests_total_total`
+- `request_duration_ms_bucket`
+- `request_duration_ms_sum`
+- `request_duration_ms_count`
 
 ### Example PromQL
+
 ```promql
 sum by (outcome) (redirect_requests_total_total)
 ```
@@ -224,3 +458,29 @@ sum by (outcome) (create_requests_total_total)
 ```promql
 histogram_quantile(0.95, sum(rate(request_duration_ms_bucket[5m])) by (le, route))
 ```
+
+## Operational Notes
+
+- `link.clicks` is created automatically by the `kafka-init` container
+- In Docker development mode, `workspace-install` installs workspace dependencies once before app containers start
+- In Docker development mode, source code is bind-mounted, so code changes do not require image rebuilds
+- Use `--build` when Dockerfiles or copied image content changes
+
+Verify that the Kafka topic exists:
+
+```bash
+docker compose -f infra/docker/docker-compose.dev.yml -f infra/docker/docker-compose.dev.dev2.yml exec -T kafka bash -lc "/opt/kafka/bin/kafka-topics.sh --bootstrap-server kafka:29092 --list"
+```
+
+## How To Extend This README
+
+When new work is added:
+
+- Add new product capabilities under `What Is Implemented`
+- Add new request flows under `Architecture`
+- Add new commands under `How To Run`
+- Add new endpoints under `API Endpoints`
+- Add new env vars under `Configuration`
+- Add new tables under `Database Schema`
+- Add new telemetry or dashboards under `Observability`
+
