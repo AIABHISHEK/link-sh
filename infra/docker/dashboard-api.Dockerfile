@@ -15,8 +15,8 @@ RUN bun install --frozen-lockfile
 COPY . .
 
 ENV NODE_ENV=production
-ENV PORT=3000
+ENV PORT=3002
 
-EXPOSE 3000
+EXPOSE 3002
 
-CMD ["bun", "run", "services/public-redirect/src/server.ts"]
+CMD ["sh", "-lc", "bun run migrate:up && bun run services/dashboard-api/src/server.ts"]

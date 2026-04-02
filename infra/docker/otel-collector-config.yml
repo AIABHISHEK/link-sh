@@ -57,7 +57,7 @@ processors:
     error_mode: ignore
     logs:
       log_record:
-        - 'resource.attributes["service.name"] != "redirect-service" and resource.attributes["service.name"] != "aggregation-service"'
+        - 'resource.attributes["service.name"] != "public-redirect" and resource.attributes["service.name"] != "dashboard-api" and resource.attributes["service.name"] != "aggregation-worker"'
 
 exporters:
   debug:

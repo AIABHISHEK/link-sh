@@ -6,14 +6,18 @@
   },
   "private": true,
   "scripts": {
-    "dev:redirect": "bun run services/link-redirect/src/server.ts ",
-    "dev:aggregator": "bun run services/aggregation/src/index.ts",
+    "dev:public-redirect": "bun run services/public-redirect/src/server.ts",
+    "dev:dashboard-api": "bun run services/dashboard-api/src/server.ts",
+    "dev:aggregation-worker": "bun run services/aggregation-worker/src/index.ts",
+    "dev:redirect": "bun run dev:public-redirect",
+    "dev:aggregator": "bun run dev:aggregation-worker",
     "migrate:create": "node-pg-migrate create",
-    "migrate:up": "bun run services/link-redirect/scripts/migrate.ts up",
-    "migrate:down": "bun run services/link-redirect/scripts/migrate.ts down"
+    "migrate:up": "bun run services/dashboard-api/scripts/migrate.ts up",
+    "migrate:down": "bun run services/dashboard-api/scripts/migrate.ts down"
   },
   "type": "module",
   "workspaces": [
-    "services/*"
+    "services/*",
+    "packages/*"
   ]
 }

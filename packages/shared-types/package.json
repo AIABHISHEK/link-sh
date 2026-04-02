@@ -1,0 +1,8 @@
+{
+  "name": "@link-sh/shared-types",
+  "type": "module",
+  "private": true,
+  "exports": {
+    ".": "./index.ts"
+  }
+}

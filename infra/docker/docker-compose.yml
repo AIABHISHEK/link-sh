@@ -1,9 +1,9 @@
 services:
-  link-redirect:
+  public-redirect:
     build:
       context: ../..
       dockerfile: infra/docker/redirect.Dockerfile
-    container_name: link_redirect
+    container_name: link_public_redirect
     ports:
       - "3000:3000"
     environment:
@@ -29,11 +29,35 @@ services:
         condition: service_started
     restart: unless-stopped
 
-  aggregation:
+  dashboard-api:
+    build:
+      context: ../..
+      dockerfile: infra/docker/dashboard-api.Dockerfile
+    container_name: link_dashboard_api
+    ports:
+      - "3002:3002"
+    environment:
+      NODE_ENV: production
+      LOG_LEVEL: info
+      PORT: 3002
+      BASE_URL: http://localhost:3000
+      DATABASE_URL: postgres://postgres:postgres@postgres:5432/links
+      REDIS_URL: redis://redis:6379
+      OTEL_EXPORTER_OTLP_ENDPOINT: http://otel-collector:4318
+    depends_on:
+      postgres:
+        condition: service_started
+      redis:
+        condition: service_started
+      otel-collector:
+        condition: service_started
+    restart: unless-stopped
+
+  aggregation-worker:
     build:
       context: ../..
       dockerfile: infra/docker/aggregator.Dockerfile
-    container_name: link_aggregation
+    container_name: link_aggregation_worker
     environment:
       NODE_ENV: production
       LOG_LEVEL: info
