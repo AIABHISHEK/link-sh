@@ -8,7 +8,9 @@ import { enqueueClickEvent } from "../kafka/producer";
 import { logger } from "../logger";
 import {
     recordRedirectRequest,
+    recordRedisLookup,
     recordRequestDuration,
+    type RedisLookupResult,
     type RedirectRequestOutcome,
 } from "../metrics";
 import { rateLimit } from "../middleware/rateLimit";
@@ -37,7 +39,8 @@ export default async function (app: FastifyInstance) {
 
             const cacheKey = `link:${shortCode}`;
             logger.info({ shortCode }, "redirect requested");
-            const longUrl = await resolveLongUrlWithStampedeProtection(shortCode, cacheKey);
+            const { longUrl, lookupResult } = await resolveLongUrlWithStampedeProtection(shortCode, cacheKey);
+            recordRedisLookup(lookupResult);
             if (!longUrl) {
                 logger.debug({ shortCode }, "redirect negative cache hit");
                 outcome = "not_found";
@@ -103,13 +106,16 @@ async function fetchLongUrlFromDb(shortCode: string, cacheKey: string): Promise<
     return longUrl;
 }
 
-async function resolveLongUrlWithStampedeProtection(shortCode: string, cacheKey: string): Promise<string | null> {
+async function resolveLongUrlWithStampedeProtection(
+    shortCode: string,
+    cacheKey: string
+): Promise<{ longUrl: string | null; lookupResult: RedisLookupResult }> {
     const cached = await redis.get(cacheKey);
     if (cached === NEGATIVE_CACHE_SENTINEL) {
-        return null;
+        return { longUrl: null, lookupResult: "negative_hit" };
     }
     if (cached) {
-        return cached;
+        return { longUrl: cached, lookupResult: "hit" };
     }
 
     const lockKey = `${cacheKey}:lock`;
@@ -118,7 +124,10 @@ async function resolveLongUrlWithStampedeProtection(shortCode: string, cacheKey:
 
     if (lockAcquired === "OK") {
         try {
-            return await fetchLongUrlFromDb(shortCode, cacheKey);
+            return {
+                longUrl: await fetchLongUrlFromDb(shortCode, cacheKey),
+                lookupResult: "miss",
+            };
         } finally {
             await releaseCacheLock(lockKey, lockToken).catch((err) => {
                 logger.warn({ err, shortCode }, "failed to release cache lock");
@@ -131,10 +140,10 @@ async function resolveLongUrlWithStampedeProtection(shortCode: string, cacheKey:
 
         const waitedValue = await redis.get(cacheKey);
         if (waitedValue === NEGATIVE_CACHE_SENTINEL) {
-            return null;
+            return { longUrl: null, lookupResult: "negative_hit" };
         }
         if (waitedValue) {
-            return waitedValue;
+            return { longUrl: waitedValue, lookupResult: "hit" };
         }
     }
 
@@ -148,7 +157,10 @@ async function resolveLongUrlWithStampedeProtection(shortCode: string, cacheKey:
     );
     if (retryLockAcquired === "OK") {
         try {
-            return await fetchLongUrlFromDb(shortCode, cacheKey);
+            return {
+                longUrl: await fetchLongUrlFromDb(shortCode, cacheKey),
+                lookupResult: "miss",
+            };
         } finally {
             await releaseCacheLock(lockKey, retryLockToken).catch((err) => {
                 logger.warn({ err, shortCode }, "failed to release cache lock");
@@ -157,5 +169,8 @@ async function resolveLongUrlWithStampedeProtection(shortCode: string, cacheKey:
     }
 
     logger.warn({ shortCode }, "cache lock wait timed out, falling back to direct DB read");
-    return fetchLongUrlFromDb(shortCode, cacheKey);
+    return {
+        longUrl: await fetchLongUrlFromDb(shortCode, cacheKey),
+        lookupResult: "miss",
+    };
 }

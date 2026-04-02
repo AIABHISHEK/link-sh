@@ -430,6 +430,10 @@ Implemented in the redirect service:
   Final outcomes: `redirect`, `not_found`, `rate_limited`, `error`
 - `create_requests_total`
   Final outcomes: `created`, `invalid_url`, `error`
+- `rate_limit_checks_total`
+  Final results: `allowed`, `blocked`
+- `redis_lookups_total`
+  Final results: `hit`, `miss`, `negative_hit`
 - `request_duration_ms`
   Labels include route, method, and outcome
 
@@ -441,6 +445,8 @@ Examples:
 
 - `redirect_requests_total_total`
 - `create_requests_total_total`
+- `rate_limit_checks_total_total`
+- `redis_lookups_total_total`
 - `request_duration_ms_bucket`
 - `request_duration_ms_sum`
 - `request_duration_ms_count`
@@ -453,6 +459,14 @@ sum by (outcome) (redirect_requests_total_total)
 
 ```promql
 sum by (outcome) (create_requests_total_total)
+```
+
+```promql
+sum by (result) (rate_limit_checks_total_total)
+```
+
+```promql
+sum by (result) (redis_lookups_total_total)
 ```
 
 ```promql
@@ -483,4 +497,3 @@ When new work is added:
 - Add new env vars under `Configuration`
 - Add new tables under `Database Schema`
 - Add new telemetry or dashboards under `Observability`
-

@@ -1,3 +1,4 @@
+import { recordRateLimitCheck } from "../metrics";
 import { redis } from "../redis";
 
 const LIMIT = 100;
@@ -13,8 +14,10 @@ export async function rateLimit(ip: string) {
     }
 
     if (count > LIMIT) {
+        recordRateLimitCheck("blocked");
         return false;
     }
 
+    recordRateLimitCheck("allowed");
     return true;
 }
