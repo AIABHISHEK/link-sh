@@ -1,3 +1,4 @@
+import "dotenv/config";
 import { cleanEnv, num, str } from "envalid";
 import { logLevelValidator, nodeEnvValidator } from "@link-sh/shared-config";
 
