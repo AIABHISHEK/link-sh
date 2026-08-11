@@ -1,0 +1,65 @@
+# Dynamic configuration: routers, middlewares, upstreams.
+#
+# Middleware order in `middlewares:` is significant and is the whole basis of the
+# auth model. strip-identity MUST come first so a client-supplied X-User-Id can
+# never survive to dashboard-api; gateway-auth then sets the real one, and
+# inject-gateway-secret proves to dashboard-api that the request came from here.
+
+http:
+  routers:
+    # /v1 is the authenticated dashboard API.
+    dashboard-api:
+      rule: "PathPrefix(`/v1`)"
+      priority: 100
+      entryPoints:
+        - web
+      middlewares:
+        - strip-identity
+        - gateway-auth
+        - inject-gateway-secret
+      service: dashboard-api
+
+    # Everything else is a short code for the public redirect service. Lowest
+    # priority so it acts as the catch-all.
+    public-redirect:
+      rule: "PathPrefix(`/`)"
+      priority: 1
+      entryPoints:
+        - web
+      service: public-redirect
+
+  middlewares:
+    # Setting a request header to "" removes it in Traefik.
+    strip-identity:
+      headers:
+        customRequestHeaders:
+          X-User-Id: ""
+          X-Gateway-Secret: ""
+
+    gateway-auth:
+      forwardAuth:
+        address: "http://auth-service:3003/verify"
+        # Only these headers are copied from the auth response onto the
+        # upstream request. X-User-Id is therefore always the auth service's
+        # value, never the client's.
+        authResponseHeaders:
+          - X-User-Id
+
+    # Traefik renders this file as a Go template before parsing it as YAML, so
+    # the template expression must be in single quotes to keep its inner
+    # double quotes intact.
+    inject-gateway-secret:
+      headers:
+        customRequestHeaders:
+          X-Gateway-Secret: '{{ env "GATEWAY_SHARED_SECRET" }}'
+
+  services:
+    dashboard-api:
+      loadBalancer:
+        servers:
+          - url: "http://dashboard-api:3002"
+
+    public-redirect:
+      loadBalancer:
+        servers:
+          - url: "http://public-redirect:3000"

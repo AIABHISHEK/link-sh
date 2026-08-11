@@ -1,28 +1,28 @@
 import Fastify from "fastify";
-import { config } from "../infrastructure/config";
-import { pool } from "../infrastructure/db/pool";
-import { logger } from "../infrastructure/observability/logger";
-import { sdk } from "../infrastructure/observability/otel";
-import { redis } from "../infrastructure/cache/redis";
-import { assertGatewayTrustConfigured } from "../modules/auth/middleware";
-import { registerRoutes } from "./register-routes";
+import { config } from "./config";
+import { logger } from "./logger";
+import { sdk } from "./otel";
+import verifyRoutes from "./routes/verify";
+import { assertVerifierUsable } from "./token-verifier";
+
 await sdk.start();
 logger.info("OpenTelemetry SDK started");
 
-assertGatewayTrustConfigured();
+assertVerifierUsable();
 
 const app = Fastify();
 
-await registerRoutes(app);
+app.get("/health", async () => ({ status: "ok" }));
+await app.register(verifyRoutes);
 
 try {
     await app.listen({
         port: config.PORT,
         host: "0.0.0.0",
     });
-    logger.info({ port: config.PORT }, "Dashboard API started");
+    logger.info({ port: config.PORT }, "Auth service started");
 } catch (err) {
-    logger.error({ err }, "Failed to start dashboard API");
+    logger.error({ err }, "Failed to start auth service");
     process.exit(1);
 }
 
@@ -35,12 +35,6 @@ function setupGracefulShutdown() {
         try {
             await app.close();
             logger.info("HTTP server closed");
-
-            await pool.end();
-            logger.info("Postgres connection closed");
-
-            await redis.quit();
-            logger.info("Redis connection closed");
 
             await sdk.shutdown();
             logger.info("OpenTelemetry SDK shut down");

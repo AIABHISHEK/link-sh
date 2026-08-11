@@ -6,6 +6,7 @@ COPY package.json bun.lock ./
 COPY services/public-redirect/package.json services/public-redirect/package.json
 COPY services/dashboard-api/package.json services/dashboard-api/package.json
 COPY services/aggregation-worker/package.json services/aggregation-worker/package.json
+COPY services/auth-service/package.json services/auth-service/package.json
 COPY packages/shared-config/package.json packages/shared-config/package.json
 COPY packages/shared-observability/package.json packages/shared-observability/package.json
 COPY packages/shared-types/package.json packages/shared-types/package.json

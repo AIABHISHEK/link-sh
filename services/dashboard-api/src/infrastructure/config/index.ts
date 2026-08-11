@@ -10,4 +10,7 @@ export const config = cleanEnv(process.env, {
     BASE_URL: str(),
     CACHE_TTL_SECONDS: num({ default: 60 * 60 }),
     LOG_LEVEL: logLevelValidator(),
+    // Shared with the gateway, which is the only caller allowed to assert
+    // x-user-id. Required when NODE_ENV=production; see assertGatewayTrustConfigured.
+    GATEWAY_SHARED_SECRET: str({ default: "" }),
 });

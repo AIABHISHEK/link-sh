@@ -9,6 +9,7 @@
     "dev:public-redirect": "bun run services/public-redirect/src/server.ts",
     "dev:dashboard-api": "bun run services/dashboard-api/src/server.ts",
     "dev:aggregation-worker": "bun run services/aggregation-worker/src/index.ts",
+    "dev:auth-service": "bun run services/auth-service/src/server.ts",
     "dev:redirect": "bun run dev:public-redirect",
     "dev:aggregator": "bun run dev:aggregation-worker",
     "migrate:create": "node-pg-migrate create",

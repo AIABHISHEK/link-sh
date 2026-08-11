@@ -94,7 +94,7 @@ async function releaseCacheLock(lockKey: string, lockToken: string) {
 
 async function fetchLongUrlFromDb(shortCode: string, cacheKey: string): Promise<string | null> {
     const result = await pool.query(
-        "SELECT long_url FROM links WHERE short_code = $1",
+        "SELECT long_url FROM links WHERE short_code = $1 AND deleted_at IS NULL",
         [shortCode]
     );
 

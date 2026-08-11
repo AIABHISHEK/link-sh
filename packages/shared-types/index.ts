@@ -6,3 +6,19 @@ export type {
     RedirectRequestOutcome,
     RequestDurationRoute,
 } from "./types/metrics";
+export type {
+    AnalyticsInterval,
+    AnalyticsTimeseriesPoint,
+    AuthenticatedUserContext,
+    CountryBreakdownItem,
+    CreateLinkRequest,
+    DashboardLink,
+    DeviceBreakdownItem,
+    LinkAnalyticsCountries,
+    LinkAnalyticsDevices,
+    LinkAnalyticsOverview,
+    LinkAnalyticsTimeseries,
+    LinkStatus,
+    ListLinksResponse,
+    UpdateLinkRequest,
+} from "./types/dashboard";

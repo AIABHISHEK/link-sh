@@ -1,16 +1,73 @@
 services:
+  gateway:
+    image: traefik:v3.2
+    container_name: link_gateway
+    command: ["--configFile=/etc/traefik/traefik.yml"]
+    volumes:
+      - ./traefik/traefik.yml:/etc/traefik/traefik.yml:ro
+      - ./traefik/dynamic.yml:/etc/traefik/dynamic.yml:ro
+    environment:
+      # Traefik's own {{ env "..." }} template call reads this at runtime, to
+      # inject it as X-Gateway-Secret on the way to dashboard-api. This is a
+      # separate mechanism from the ${...:?...} compose-file interpolation
+      # below on dashboard-api/auth-service — both must see the same value.
+      GATEWAY_SHARED_SECRET: ${GATEWAY_SHARED_SECRET:?GATEWAY_SHARED_SECRET must be set for the production stack}
+    # Host port is 8080 so the stack runs without elevated privileges (binding
+    # :80 needs them on Windows). Traefik still listens on :80 inside the
+    # container. Change the left side to 80 when deploying somewhere that can
+    # bind it, and update BASE_URL below to match.
+    ports:
+      - "8080:80"
+    depends_on:
+      public-redirect:
+        condition: service_started
+      dashboard-api:
+        condition: service_started
+      auth-service:
+        condition: service_started
+    restart: unless-stopped
+
+  auth-service:
+    build:
+      context: ../..
+      dockerfile: infra/docker/auth-service.Dockerfile
+    container_name: link_auth_service
+    # Not reachable from the host; only the gateway's ForwardAuth calls this,
+    # in-network as http://auth-service:3003.
+    expose:
+      - "3003"
+    environment:
+      # STILL THE PHASE B DEV-TOKEN STUB (see token-verifier.ts): it accepts
+      # any "dev:<userId>" bearer token as proof of identity. NODE_ENV is
+      # deliberately NOT production here, because assertVerifierUsable()
+      # refuses to boot in production while the stub is in use. Phase C
+      # replaces the stub with real JWKS verification; flipping this to
+      # production is how that cutover gets enforced, not skipped.
+      NODE_ENV: development
+      LOG_LEVEL: info
+      PORT: 3003
+      OTEL_EXPORTER_OTLP_ENDPOINT: http://otel-collector:4318
+    depends_on:
+      otel-collector:
+        condition: service_started
+    restart: unless-stopped
+
   public-redirect:
     build:
       context: ../..
       dockerfile: infra/docker/redirect.Dockerfile
     container_name: link_public_redirect
-    ports:
-      - "3000:3000"
+    # Not published: reached only through the gateway, which is the single
+    # public entry point now that one exists.
+    expose:
+      - "3000"
     environment:
       NODE_ENV: production
       LOG_LEVEL: info
       PORT: 3000
-      BASE_URL: http://localhost:3000
+      # The gateway is the public address short URLs must resolve through, so
+      # this must match the gateway's published host port above.
+      BASE_URL: http://localhost:8080
       DATABASE_URL: postgres://postgres:postgres@postgres:5432/links
       REDIS_URL: redis://redis:6379
       KAFKA_BROKERS: kafka:29092
@@ -34,16 +91,24 @@ services:
       context: ../..
       dockerfile: infra/docker/dashboard-api.Dockerfile
     container_name: link_dashboard_api
-    ports:
-      - "3002:3002"
+    # Deliberately no published port: this service trusts the gateway's
+    # x-user-id assertion, so it must only be reachable in-network as
+    # http://dashboard-api:3002. Publishing a host port here would let any
+    # local client impersonate any user. Expose it through the gateway instead.
+    expose:
+      - "3002"
     environment:
       NODE_ENV: production
       LOG_LEVEL: info
       PORT: 3002
-      BASE_URL: http://localhost:3000
+      # Used to build shortUrl in API responses; must match the gateway's
+      # published host port above.
+      BASE_URL: http://localhost:8080
       DATABASE_URL: postgres://postgres:postgres@postgres:5432/links
       REDIS_URL: redis://redis:6379
       OTEL_EXPORTER_OTLP_ENDPOINT: http://otel-collector:4318
+      # Must match the value the gateway sends. Compose fails fast if unset.
+      GATEWAY_SHARED_SECRET: ${GATEWAY_SHARED_SECRET:?GATEWAY_SHARED_SECRET must be set for the production stack}
     depends_on:
       postgres:
         condition: service_started
@@ -133,11 +198,9 @@ services:
   otel-collector:
     image: otel/opentelemetry-collector-contrib:latest
     container_name: link_otel_collector
-    user: "0:0"
     command: ["--config=/etc/otel-collector-config.yml"]
     volumes:
       - ./otel-collector-config.yml:/etc/otel-collector-config.yml
-      - /var/lib/docker/containers:/var/lib/docker/containers:ro
     ports:
       - "4318:4318"
       - "4317:4317"

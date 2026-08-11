@@ -1,0 +1,23 @@
+# Static configuration. Routing lives in dynamic.yml.
+#
+# The file provider is used deliberately instead of the docker provider: the
+# latter needs the Docker socket mounted, which is root-equivalent on the host.
+# With a small fixed set of upstreams, a single reviewable routing file is both
+# safer and clearer.
+
+entryPoints:
+  web:
+    address: ":80"
+
+providers:
+  file:
+    filename: /etc/traefik/dynamic.yml
+    watch: true
+
+log:
+  level: INFO
+
+accessLog: {}
+
+# The API and dashboard are intentionally left disabled: they expose the routing
+# configuration and would need their own authentication in front of them.

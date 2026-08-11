@@ -60,11 +60,9 @@ services:
   otel-collector:
     image: otel/opentelemetry-collector-contrib:latest
     container_name: link_otel_collector
-    user: "0:0"
     command: ["--config=/etc/otel-collector-config.yml"]
     volumes:
       - ./otel-collector-config.yml:/etc/otel-collector-config.yml
-      - /var/lib/docker/containers:/var/lib/docker/containers:ro
     ports:
       - "4318:4318"   # OTLP HTTP
       - "4317:4317"   # OTLP gRPC
